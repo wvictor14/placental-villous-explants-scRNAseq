@@ -1,0 +1,292 @@
+---
+title: "01_load_data"
+author: "Victor Yuan"
+date: "March 25, 2019"
+output:
+  html_document:
+    keep_md: true
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false
+    theme: spacelab
+---
+
+This script is for loading the scRNAseq data from Vento-tormo et al. 2018 Nature into seurat and
+performing CCA, PCA, and UMAP coordinates.
+
+At the end of this script, an R object containing combined 10x and drop-seq data is created, along with CCA, PCA, and UMAP coordinates for downstream analysis. Meta data is also available, taken from the public repository only --- some sample info is present in the supplementary table 2 which has not
+yet been added to the R object.
+
+# 1.0 Libraries 
+
+```{r, message = F, warning = F}
+library(readxl) # read data in
+library(plyr) 
+library(stringr)
+library(knitr);library(kableExtra) # for displaying pretty tables
+library(dplyr)
+library(Seurat) # V3
+library(readr)
+library(ggplot2)
+library(cowplot)
+library(tidyr)
+```
+
+# 2.0 Load Data
+
+Set a directory where scRNAseq files are located
+
+```{r}
+base_dir <- '../../data/Roser Vento-Tormo/'
+```
+
+First I load in the 10x data, make sure everything is OK and matching between data types (count, meta). Then I fix / remove errors or uninformative columns. Then I repeat with the drop seq data.
+
+Note that the meta data for these datasets is stored in two tables, one I refer to as 'sdrf' after
+the file name. It's necessary to combine both meta dataframes since they contain different pieces of
+information.
+
+## 10x data
+
+```{r eval = T}
+#10x data
+system.time(
+  raw_10x <- read_tsv(paste0(base_dir, '10x/E-MTAB-6701.processed.1/raw_data_10x.txt'))
+) #  20 min
+
+dim(raw_10x) # 31764 transcripts 64735-1 cells (minus one for gene name column)
+
+# read in meta data, stored in two tables
+meta_10x_clusters <- read_tsv(paste0(base_dir, '10x/E-MTAB-6701.processed.2/E-MTAB-6701_arrayexpress_10x_meta.txt')) %>%
+  select(-X1) %>%
+  mutate(platform = '10x', Cell_ID = Cell) %>% # this is RUN_ID pasted to UMI barcode
+  separate(Cell, into = c('Source_Name', 'UMI_ID'))
+
+# this has more sample-specific info, like patient ID, GA range and facs enrichment
+meta_10x_sdrf <- read_delim(paste0(base_dir,
+                                   '10x/E-MTAB-6701.sdrf.txt'), delim = '\t') %>% 
+  select(-contains('Factor Value')) # duplicate columns
+
+# tidy column names
+colnames(meta_10x_sdrf) <- 
+  gsub('\\s', '\\_', gsub('^.*\\[', '', gsub('\\]', '', colnames(meta_10x_sdrf))))
+
+# remove unimportant columns
+meta_10x_sdrf <- meta_10x_sdrf %>% 
+  select(-c(organism, developmental_stage, library_construction:index1_file))
+
+# conbine meta_10x_sdrf and meta_10x into one data frame
+all(meta_10x_clusters$Source_Name %in% meta_10x_sdrf$Source_Name) #T
+all(meta_10x_sdrf$Source_Name %in% meta_10x_clusters$Source_Name) #F
+missing <- meta_10x_sdrf %>% 
+  filter(!Source_Name %in% meta_10x_clusters$Source_Name) 
+missing
+```
+
+"FCA7167220" "FCA7474066" "FCA7474069" "FCA7511883" "FCA7511885" "FCA7511886" 
+samples are not in the count matrix, or meta data matrix. Not clear exactly why, but these have special enrichment so perhaps these samples yielded no cells? --update these are the EPCAM+ and 
+HLA-G+ cells. Unfortunately not sure why they are not included in the dataset. Or perhaps I'm 
+missing them...
+
+```{r}
+# merge meta data
+meta_10x <- left_join(meta_10x_clusters, meta_10x_sdrf, by = 'Source_Name') %>%
+  select(-organism_part, -run) # remove duplicate columns
+head(colnames(raw_10x))
+```
+
+## drop seq
+
+dropseq data is in same structure as 10x:
+- count data matrix
+- meta data table 1
+- meta data table 2
+
+So again we merge the two meta data tables as we did above for the 10x data.
+
+```{r}
+# Drop seq count data
+system.time(
+  raw_ds <- read_tsv(paste0(base_dir, 'DropSeq/raw_data_ss2.txt'))
+) #  20 min
+
+#meta data tables 1 and 2
+meta_ds_clusters <- read_tsv(paste0(base_dir, 
+                                    'DropSeq/E-MTAB-6678_arrayexpress_ss2_meta.txt')) %>%
+  select(-X1) %>%
+  mutate(platform = 'DropSeq')
+
+meta_ds_sdrf <- read_delim(paste0(base_dir,
+                                   'DropSeq/E-MTAB-6678.sdrf.txt'), delim = '\t')
+
+# tidy column names
+colnames(meta_ds_sdrf) <- 
+  gsub('\\s', '\\_', gsub('^.*\\[', '', gsub('\\]', '', colnames(meta_ds_sdrf))))
+
+#remove unimportant columns
+meta_ds_sdrf <- meta_ds_sdrf %>% 
+  select(-c(organism, organism_part, developmental_stage, Material_Type:single_cell_identifier))
+
+# fix cell names, there is a type, the hashtag should be an underscore (or vice versa)
+colnames(raw_ds) <- gsub('\\#', '_', colnames(raw_ds))
+meta_ds_clusters <- meta_ds_clusters %>% 
+  mutate(Cell = gsub('\\#', '_', Cell)) 
+all(meta_ds_clusters$Cell == colnames(raw_ds)[2:ncol(raw_ds)]) #2
+```
+
+There should be 5591 rows (cells), but the sdrf has 15194.
+
+```{r}
+table(meta_ds_sdrf$single_cell_quality) # it's not this
+
+sum(meta_ds_sdrf$Source_Name %in% meta_ds_clusters$Cell) # 7597
+sum(unique(meta_ds_sdrf$Source_Name) %in% meta_ds_clusters$Cell) #5590, that's it
+```
+
+So looks like that are several rows with the same cell ID. Let's pull out a couple and see what's going on....
+
+Update, I checked the columns that I previously filtered out, and it looks like the multiple rows 
+per cell contain multiple fastq files. (e.g. row 1 of cell A is fasq file 1, and row 2 of cell A is fasq file 2).
+
+This is an easy fix, just remove all duplicated entries, such that each unique cell ID is on a 
+single row.
+
+```{r}
+# remove duplicate rows from sdrf file
+meta_ds_sdrf <- meta_ds_sdrf %>% distinct # such a useful function omg
+nrow(meta_ds_sdrf) # 15194 -> 7597 rows
+
+# merge
+meta_ds <- left_join(meta_ds_clusters, meta_ds_sdrf, by = c('Cell' = 'Source_Name')) %>%
+  rename(Cell_ID = Cell)
+meta_ds
+```
+
+5591 rows, or cells, exactly matching the number of cells in the count matrix
+
+## 2.1 Merge data
+
+Before merging, need to make the column names the same across drop seq and 10x meta data.
+
+Some columns will be present in one and not the other. These columns we keep, and put in NAs for the
+other dataset when combined. Example of these columns: 
+
+- run (10x-specific)
+- FACS_marker (10x-specific)
+- cell_gating (ds-specific)
+- single_cell_quality (ds-specific)
+
+```{r eval = T}
+#check order and column names match
+all(colnames(raw_10x)[2:ncol(raw_10x)] == meta_10x$Cell_ID) # T
+all(colnames(raw_ds)[2:ncol(raw_ds)] == meta_ds$Cell_ID) # T
+all(colnames(meta_10x) == colnames(meta_ds)) # F
+
+# rename columns such that they match if they are the same
+meta_10x <- meta_10x %>% 
+  rename(Run = Source_Name) %>% 
+  select(-single_cell_isolation)
+# remaining columns that are unique to each meta data frame can be kept
+
+# merge meta
+meta <- bind_rows(meta_10x, meta_ds) %>%
+  
+  #reorganize column order
+  select(-platform, -ENA_SAMPLE, -BioSD_SAMPLE, # move these to the back
+         platform, ENA_SAMPLE, BioSD_SAMPLE)
+meta # 70325 cells
+
+#merge count data
+all(raw_10x$Gene == raw_ds$Gene) # T
+raw <- raw_10x %>% full_join(raw_ds, by = 'Gene')
+
+#check that merged count matrix matches meta cell IDs
+all(colnames(raw)[2:ncol(raw)] == meta$Cell_ID) # T
+
+raw[1:6,1:6]
+
+# rename gene names, store ensg ID key
+genes <- tibble(Full_ID = raw$Gene) %>%
+  mutate(Gene = make.unique(str_extract(Full_ID, '^.*(?=(_ENSG))'), sep = '_'),
+         ENSG_ID = str_extract(Full_ID, 'ENSG.*$')) %>%
+  mutate(Gene = ifelse(is.na(Gene), Full_ID, Gene))
+
+# ensure all hitlist genes can be found
+hitlist <- read_xlsx('../../2019-03-19 currated scRNA-seq gene list.xlsx') %>% 
+  gather(key = 'Geneset', value = 'Gene') %>% filter(!is.na(Gene))
+all(hitlist$Gene %in% genes$Gene) #T
+
+raw$Gene <- genes$Gene
+```
+
+# 3.0 Save Data
+
+```{r eval = F}
+saveRDS(raw, '../../data/interim/01_counts.rds')
+write.csv(meta, '../../data/interim/01_meta.csv', quote = F, row.names = F)
+write.csv(genes, '../../data/interim/01_genes_annotation.csv', quote = F, row.names = F)
+```
+
+```{r eval = F}
+raw <- readRDS('../../data/interim/01_counts.rds')
+meta <- read.csv('../../data/interim/01_meta.csv')
+```
+
+# 4.0 Load into Seurat
+
+Now that we have a count matrix and a meta dataframe for all of the data, we can load this into 
+Seurat to streamline downstream analysis.
+
+```{r}
+# input needs to be standard gene expression format (rownames as gene names, columns are samples)
+raw_in <- raw[,2:ncol(raw)] %>% as.data.frame()
+rownames(raw_in) <- raw$Gene
+meta_in <- meta %>% as.data.frame()
+rownames(meta_in) <- meta_in$Cell
+
+#put as a seurat object
+scobj <- CreateSeuratObject(counts = raw_in, meta.data = meta_in)
+scobj_list <- SplitObject(object = scobj, split.by = "platform")
+```
+
+## 4.1 Merge
+
+Prior to merging, we need to normalize the data (log transformed) and find the top 2000 variable 
+features.
+
+```{r}
+# find top 2000 variable features
+for (i in 1:length(x = scobj_list)) {
+  scobj_list[[i]] <- NormalizeData(object = scobj_list[[i]], verbose = FALSE)
+  scobj_list[[i]] <- FindVariableFeatures(object = scobj_list[[i]],
+                                          selection.method = "vst", 
+                                          nfeatures = 2000, 
+                                          verbose = FALSE)
+}
+
+# Merge datasets
+reference_list <- scobj_list[c("10x", "DropSeq")]
+anchors <- FindIntegrationAnchors(object.list = reference_list, dims = 1:30) # find anchors
+scobj_merge <- IntegrateData(anchorset = anchors, dims = 1:30,
+                             features.to.integrate = rownames(scobj_list[[1]])) # merge
+```
+
+## 4.2 UMAP, PCA, and clustering
+
+```{r}
+# Run the standard workflow for visualization and clustering
+scobj_merge <- ScaleData(object = scobj_merge, verbose = FALSE)
+scobj_merge <- RunPCA(object = scobj_merge, npcs = 30, verbose = FALSE)
+scobj_merge <- RunUMAP(object = scobj_merge, reduction = "pca", 
+    dims = 1:30)
+
+p1 <- DimPlot(object = scobj_merge, reduction = "umap", group.by = "platform")
+p2 <- DimPlot(object = scobj_merge, reduction = "umap", group.by = "final_cluster", 
+    label = TRUE, repel = TRUE) + NoLegend()
+plot_grid(p1, p2)
+```
+
+```{r eval = F}
+saveRDS(scobj_merge, '../../data/interim/01_scobj_merge.rds')
+```
