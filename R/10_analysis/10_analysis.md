@@ -20,31 +20,15 @@ This is for analysing the scRNAseq data
 
 ```r
 library(readxl) # read data in
-```
-
-```
-## Warning: package 'readxl' was built under R version 3.5.2
-```
-
-```r
 library(plyr) 
 library(stringr)
-```
-
-```
-## Warning: package 'stringr' was built under R version 3.5.2
-```
-
-```r
 library(knitr);library(kableExtra) # for displaying pretty tables
 ```
 
 ```
-## Warning: package 'knitr' was built under R version 3.5.2
-```
-
-```
-## Warning: package 'kableExtra' was built under R version 3.5.2
+## Registered S3 method overwritten by 'rvest':
+##   method            from
+##   read_xml.response xml2
 ```
 
 ```r
@@ -54,6 +38,12 @@ library(dplyr)
 ```
 ## 
 ## Attaching package: 'dplyr'
+```
+
+```
+## The following object is masked from 'package:kableExtra':
+## 
+##     group_rows
 ```
 
 ```
@@ -77,20 +67,26 @@ library(dplyr)
 
 ```r
 library(Seurat) # V3
-library(readr)
 ```
 
 ```
-## Warning: package 'readr' was built under R version 3.5.3
+## Registered S3 method overwritten by 'R.oo':
+##   method        from       
+##   throw.default R.methodsS3
+```
+
+```
+## Registered S3 methods overwritten by 'ggplot2':
+##   method         from 
+##   [.quosures     rlang
+##   c.quosures     rlang
+##   print.quosures rlang
 ```
 
 ```r
+library(readr)
 library(ggplot2)
 library(cowplot)
-```
-
-```
-## Warning: package 'cowplot' was built under R version 3.5.2
 ```
 
 ```
@@ -106,7 +102,119 @@ library(cowplot)
 
 ```r
 library(tidyr)
+library(monocle)
+```
 
+```
+## Loading required package: Matrix
+```
+
+```
+## 
+## Attaching package: 'Matrix'
+```
+
+```
+## The following object is masked from 'package:tidyr':
+## 
+##     expand
+```
+
+```
+## Loading required package: Biobase
+```
+
+```
+## Loading required package: BiocGenerics
+```
+
+```
+## Loading required package: parallel
+```
+
+```
+## 
+## Attaching package: 'BiocGenerics'
+```
+
+```
+## The following objects are masked from 'package:parallel':
+## 
+##     clusterApply, clusterApplyLB, clusterCall, clusterEvalQ,
+##     clusterExport, clusterMap, parApply, parCapply, parLapply,
+##     parLapplyLB, parRapply, parSapply, parSapplyLB
+```
+
+```
+## The following objects are masked from 'package:Matrix':
+## 
+##     colMeans, colSums, rowMeans, rowSums, which
+```
+
+```
+## The following objects are masked from 'package:dplyr':
+## 
+##     combine, intersect, setdiff, union
+```
+
+```
+## The following objects are masked from 'package:stats':
+## 
+##     IQR, mad, sd, var, xtabs
+```
+
+```
+## The following objects are masked from 'package:base':
+## 
+##     anyDuplicated, append, as.data.frame, basename, cbind,
+##     colMeans, colnames, colSums, dirname, do.call, duplicated,
+##     eval, evalq, Filter, Find, get, grep, grepl, intersect,
+##     is.unsorted, lapply, Map, mapply, match, mget, order, paste,
+##     pmax, pmax.int, pmin, pmin.int, Position, rank, rbind, Reduce,
+##     rowMeans, rownames, rowSums, sapply, setdiff, sort, table,
+##     tapply, union, unique, unsplit, which, which.max, which.min
+```
+
+```
+## Welcome to Bioconductor
+## 
+##     Vignettes contain introductory material; view with
+##     'browseVignettes()'. To cite Bioconductor, see
+##     'citation("Biobase")', and for packages 'citation("pkgname")'.
+```
+
+```
+## Loading required package: VGAM
+```
+
+```
+## Loading required package: stats4
+```
+
+```
+## Loading required package: splines
+```
+
+```
+## 
+## Attaching package: 'VGAM'
+```
+
+```
+## The following object is masked from 'package:tidyr':
+## 
+##     fill
+```
+
+```
+## Loading required package: DDRTree
+```
+
+```
+## Loading required package: irlba
+```
+
+```r
 scobj_merge <- readRDS('../../data/interim/01_scobj_merge.rds')
 ```
 
@@ -147,6 +255,7 @@ troph
 ## An object of class Seurat 
 ## 63528 features across 14366 samples within 2 assays 
 ## Active assay: integrated (31764 features)
+##  1 other assay present: RNA
 ##  2 dimensional reductions calculated: pca, umap
 ```
 
@@ -174,14 +283,37 @@ table(troph$platform)
 # assign cell type labels to clusters based on paper
 troph$celltype <- ifelse(troph$final_cluster == 1, 'VCT',
                          ifelse(troph$final_cluster == 9, 'VCT p',
-                                ifelse(troph$final_cluster == 13, 'EVT',
-                                       ifelse(troph$final_cluster == 16, 'EVT p',
+                                ifelse(troph$final_cluster == 16, 'EVT',
+                                       ifelse(troph$final_cluster == 13, 'EVT p',
                                               ifelse(troph$final_cluster == 20, 'SCT', NA)))))
 Idents(troph) <- 'celltype'
 ```
 
 Recompute pca and umap coordinates on trophoblast cells:
 
+
+```r
+# find variable features
+troph <- FindVariableFeatures(object = troph,
+                              selection.method = "vst", 
+                              nfeatures = 2000, 
+                              verbose = T, assay = 'integrated')
+```
+
+```
+## Warning in FindVariableFeatures.Assay(object = assay.data, selection.method
+## = selection.method, : selection.method set to 'vst' but count slot is
+## empty; will use data slot instead
+```
+
+```
+## Warning in eval(predvars, data, env): NaNs produced
+```
+
+```
+## Warning in hvf.info$variance.expected[not.const] <- 10^fit$fitted: number
+## of items to replace is not a multiple of replacement length
+```
 
 ```r
 #redo umap / pca
@@ -285,6 +417,26 @@ average_exp <- AverageExpression(object = troph, return.seurat = T)
 ```
 
 ```
+## Finished averaging RNA for cluster VCT
+```
+
+```
+## Finished averaging RNA for cluster VCT p
+```
+
+```
+## Finished averaging RNA for cluster EVT
+```
+
+```
+## Finished averaging RNA for cluster EVT p
+```
+
+```
+## Finished averaging RNA for cluster SCT
+```
+
+```
 ## Finished averaging integrated for cluster VCT
 ```
 
@@ -305,20 +457,13 @@ average_exp <- AverageExpression(object = troph, return.seurat = T)
 ```
 
 ```
-## Scaling data matrix
+## Centering and scaling data matrix
 ```
 
 ```r
 ave_exp_mat <- average_exp@assays$integrated@scale.data[,] %>% as.data.frame()
 
 library(pheatmap)
-```
-
-```
-## Warning: package 'pheatmap' was built under R version 3.5.2
-```
-
-```r
 #create annotation dataframe for genes
 row_label <- as.data.frame(hitlist) 
 row_label$Gene <- make.unique(row_label$Gene)
@@ -337,3 +482,184 @@ pheatmap(ave_exp_mat[,c('VCT', 'VCT p', 'EVT', 'EVT p', 'SCT')],
 ```
 
 ![](10_analysis_files/figure-html/unnamed-chunk-5-1.png)<!-- -->
+
+# 3.0 Pseudotime
+
+Note that because we are importing seurat merged data, we have to set the `expressionFamily` 
+argument as 'gaussianff'. Then, in following functions, when possible we must specify the arguments
+`norm_method` = 'none' and `pseudo_expr` = 0.
+
+## 3.1 Import into monocle
+
+
+```r
+# import into monocle object
+#Extract data, phenotype data, and feature data from the SeuratObject
+troph_data <- as(as.matrix(troph@assays$integrated@data), 'sparseMatrix')
+
+pd <- new('AnnotatedDataFrame', data = troph@meta.data)
+
+fData <- data.frame(gene_short_name = row.names(troph_data), row.names = row.names(troph_data))
+fd <- new('AnnotatedDataFrame', data = fData)
+
+#Construct monocle object
+monocle_cds <- newCellDataSet(troph_data,
+                         phenoData = pd,
+                         featureData = fd,
+                         lowerDetectionLimit = 0.5,
+                         expressionFamily = uninormal())
+
+# process, not necessary unless using negbinomial 
+#monocle_cds <- estimateSizeFactors(monocle_cds)
+#monocle_cds <- estimateDispersions(monocle_cds) # not neessary for gaussian data
+
+# remove genes with very low expression (noninformative)
+#monocle_cds <- detectGenes(monocle_cds, min_expr = 0.1)
+
+# sellect a minimum number of cells expressing a gene as a threshold
+#fData(monocle_cds)$use_for_ordering <- 
+#  fData(monocle_cds)$num_cells_expressed > 0.05 * ncol(monocle_cds)
+```
+
+## 3.2 Create trajectory
+
+Here we try pseudotime analysis on the trophoblast cells using 3 different approaches to generate 
+the trajectory.
+
+### Ordering based on cluster DEGs
+
+Here we are finding clusters on a reduced dimensional projection (PCA -> TSNE), then 
+clustering ('density-peak'), then finding the top 1000 differentially expressed genes, then 
+performing the pseudotime analysis on those genes. This is the recommended approach from the
+documentation.
+
+
+```r
+# select number of principal components to use for pseudotime
+plot_pc_variance_explained(cds = monocle_cds, max_components = 50, return_all = F, 
+                           pseudo_expr = 0, norm_method = 'none') # required argumnets for gaussianff
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-7-1.png)<!-- -->
+
+```r
+monocle_cds <- reduceDimension(monocle_cds, max_components = 2, 
+                               norm_method = 'none', pseudo_expr = 0,
+                               num_dim = 10, reduction_method = 'tSNE', verbose = T)
+```
+
+```
+## Remove noise by PCA ...
+```
+
+```
+## Reduce dimension by tSNE ...
+```
+
+```r
+# run density peak clustering on reduced projection
+monocle_cds <- clusterCells(monocle_cds, rho_threshold = 2,
+                         delta_threshold = 5,
+                         skip_rho_sigma = T,
+                         verbose = F)
+```
+
+```
+## Distance cutoff calculated to 6.554119
+```
+
+```r
+#  this plot can help us decide number of clusters
+plot_rho_delta(monocle_cds, rho_threshold = 2, delta_threshold = 5)
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-7-2.png)<!-- -->
+
+```r
+plot_cell_clusters(monocle_cds, color_by = 'as.factor(Cluster)')
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-7-3.png)<!-- -->
+
+```r
+plot_cell_clusters(monocle_cds, color_by = 'as.factor(celltype)')
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-7-4.png)<!-- -->
+
+Run DEG on clusters
+
+~45 minutes with 24 cores
+
+
+```r
+# find differentially expressed genes between all clusters
+clustering_DEG_genes <- differentialGeneTest(monocle_cds,
+                                             fullModelFormulaStr = '~Cluster',
+                                             cores = 24)
+```
+
+saveRDS(clustering_DEG_genes, '../../data/interim/clustering_DEG_genes.rds')
+
+
+```r
+clustering_DEG_genes <- readRDS('../../data/interim/clustering_DEG_genes.rds')
+
+# select top 1000 differnetially expressed genes to order the cells
+ordering_genes <- row.names(clustering_DEG_genes)[order(clustering_DEG_genes$qval)][1:1000]
+monocle_cds <- setOrderingFilter(monocle_cds, ordering_genes = ordering_genes)
+monocle_cds <- reduceDimension(monocle_cds, method = 'DDRTree', 
+                               norm_method = 'none', pseudo_expr = 0)
+monocle_cds <- orderCells(monocle_cds)
+plot_cell_trajectory(monocle_cds, color_by = "as.factor(celltype)")
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-9-1.png)<!-- -->
+
+Pretty good
+
+### Based on top 1000 variable genes
+
+
+```r
+top1000variable <- troph@assays$integrated@var.features[1:1000]
+monocle_cds <- setOrderingFilter(monocle_cds, ordering_genes = top1000variable)
+monocle_cds <- reduceDimension(monocle_cds, method = 'DDRTree',
+                               norm_method = 'none', pseudo_expr = 0)
+monocle_cds <- orderCells(monocle_cds)
+plot_cell_trajectory(monocle_cds, color_by = "as.factor(celltype)")
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-10-1.png)<!-- -->
+
+This looks pree good. Can it be better?
+
+### Based on top 1000 DEGs between all trophoblast subtypes
+
+
+```r
+# find differentially expressed genes between trophoblasts
+troph_DEG_genes <- differentialGeneTest(monocle_cds,
+                                        fullModelFormulaStr = '~celltype',
+                                        cores = 24)
+```
+
+saveRDS(troph_DEG_genes, '../../data/interim/troph_DEG_genes.rds')
+
+
+```r
+troph_DEG_genes <- readRDS('../../data/interim/troph_DEG_genes.rds')
+
+ordering_genes <- row.names(troph_DEG_genes)[order(troph_DEG_genes$qval)][1:1000]
+monocle_cds <- setOrderingFilter(monocle_cds, ordering_genes = ordering_genes)
+monocle_cds <- reduceDimension(monocle_cds, method = 'DDRTree', 
+                               norm_method = 'none', pseudo_expr = 0)
+monocle_cds <- orderCells(monocle_cds)
+plot_cell_trajectory(monocle_cds, color_by = "as.factor(celltype)")
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-12-1.png)<!-- -->
+
+Best so far
+
+## 3.3 Plot gene expression along trajectory
