@@ -10,4 +10,6 @@ E-MTAB-6678*
 raw_data_ss2.txt
 raw_data_10x.txt
 *.rds
-.csv
+*.csv
+*.xlsx
+Manuscript
