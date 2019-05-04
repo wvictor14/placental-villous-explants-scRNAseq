@@ -1,0 +1,100 @@
+---
+title: "02_trophoblast"
+author: "Victor Yuan"
+date: "May 3, 2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+Here I subset the merged data to only trophoblast cells and perform CCA. 
+
+
+# 1.0 Libraries 
+
+```{r, message = F, warning = F}
+library(tidyr)
+library(plyr) 
+library(dplyr)
+library(Seurat) # V3
+library(ggplot2)
+library(cowplot)
+
+scobj_merge <- readRDS('../../data/interim/01_scobj_merge.rds')
+```
+
+# 2.0 Trophoblast cells
+
+## 2.1 Subset to trophoblast cells
+From article:
+
+"The trophoblast clusters (clusters 1, 9, 20, 13 and 16 from Fig. 1d) were taken from the initial analysis of all cells and merged with the enriched EPCAM+ and HLA-G+ cells. The droplet-based and Smart-seq2 datasets were integrated and clustered using the same workflow as described above. Only cells that were identified as trophoblast were considered for trajectory analysis."
+
+So clusters 1, 9, 20, 13, and 16. And also EPCAM+ and HLA-G+ sortd cells.
+
+Note that the legend in figure 1 is incorrect. cluster 13 should be EVT p and cluster 16 should be
+EVT, based off MKI67 expression (supplementary figure)
+
+```{r}
+Idents(scobj_merge) <- 'final_cluster'
+table(Idents(scobj_merge))
+
+troph <- subset(scobj_merge, subset = final_cluster %in% c(1, 9, 20, 13, 16))
+troph
+table(Idents(troph))
+table(troph$platform)
+
+# assign cell type labels to clusters based on paper
+troph$celltype <- ifelse(troph$final_cluster == 1, 'VCT',
+                         ifelse(troph$final_cluster == 9, 'VCT p',
+                                ifelse(troph$final_cluster == 16, 'EVT',
+                                       ifelse(troph$final_cluster == 13, 'EVT p',
+                                              ifelse(troph$final_cluster == 20, 'SCT', NA)))))
+
+# recreate seurat object, otherwise I receive errors
+scobj <- CreateSeuratObject(counts = troph@assays$RNA@counts, meta.data = troph@meta.data)
+Idents(scobj) <- 'celltype'
+```
+
+## 2.2 CCA
+
+```{r}
+scobj_list <- SplitObject(object = scobj, split.by = "platform")
+
+# find top 2000 variable features
+for (i in 1:length(scobj_list)) {
+  scobj_list[[i]] <- NormalizeData(object = scobj_list[[i]], verbose = T)
+  scobj_list[[i]] <- FindVariableFeatures(object = scobj_list[[i]],
+                                          selection.method = "vst", 
+                                          nfeatures = 2000, 
+                                          verbose = T)
+}
+
+# Merge datasets
+reference_list <- scobj_list[c("10x", "DropSeq")]
+anchors <- FindIntegrationAnchors(object.list = reference_list, dims = 1:30) # find anchors
+troph_merge <- IntegrateData(anchorset = anchors, dims = 1:30,
+                             features.to.integrate = rownames(scobj_list[[1]])) #
+```
+
+## 2.3 PCA, UMAP
+
+```{r}
+#scobj_merge <- ScaleData(object = scobj_merge, verbose = FALSE)
+troph_merge <- ScaleData(object = troph_merge, do.scale = F, do.center = T, verbose = T)
+troph_merge <- RunPCA(object = troph_merge, npcs = 30, verbose = FALSE)
+p1 <- DimPlot(object = troph_merge, reduction = "pca", group.by = "celltype")
+p2 <- DimPlot(object = troph_merge, reduction = "pca", group.by = "celltype", dims = c(3,4))
+p3 <- DimPlot(object = troph_merge, reduction = "pca", group.by = "celltype", dims = c(5,6))
+p4 <- DimPlot(object = troph_merge, reduction = "pca", group.by = "celltype", dims = c(7,8))
+plot_grid(p1,p2,p3,p4)
+
+troph_merge <- RunUMAP(object = troph_merge, reduction = "pca", dims = 1:5)
+
+p1 <- DimPlot(object = troph_merge, reduction = "umap", group.by = "platform")
+p2 <- DimPlot(object = troph_merge, reduction = "umap", group.by = "celltype", 
+    label = TRUE, repel = TRUE) + NoLegend()
+plot_grid(p1, p2)
+```
+
+saveRDS(troph_merge, '../../data/interim/02_troph_merge.rds')
