@@ -13,3 +13,5 @@ raw_data_10x.txt
 *.csv
 *.xlsx
 Manuscript
+*.tiff
+*.pdf
