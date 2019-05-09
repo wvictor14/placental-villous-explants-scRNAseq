@@ -19,6 +19,7 @@ This is for analysing the scRNAseq data
 
 
 ```r
+set.seed(2019)
 library(readxl) # read data in
 library(plyr) 
 library(stringr)
@@ -215,132 +216,60 @@ library(monocle)
 ```
 
 ```r
-scobj_merge <- readRDS('../../data/interim/01_scobj_merge.rds')
+library(slingshot)
+```
+
+```
+## Loading required package: princurve
+```
+
+```r
+library(RColorBrewer)
+troph <- readRDS('../../data/interim/02_troph_merge.rds')
 ```
 
 # 2.0 Validate hits
 
 First subset to trophoblast
 
-## 2.1 Subset to Trophoblast Cells
+## 2.1 List of hits
 
-From article:
-
-"The trophoblast clusters (clusters 1, 9, 20, 13 and 16 from Fig. 1d) were taken from the initial analysis of all cells and merged with the enriched EPCAM+ and HLA-G+ cells. The droplet-based and Smart-seq2 datasets were integrated and clustered using the same workflow as described above. Only cells that were identified as trophoblast were considered for trajectory analysis."
-
-So clusters 1, 9, 20, 13, and 16. And also EPCAM+ and HLA-G+ sortd cells.
-
-
-```r
-Idents(scobj_merge) <- 'final_cluster'
-table(Idents(scobj_merge))
-```
-
-```
-## 
-##    2    3    5    6    7    8   10   11   15   16   17   21   22   24   26 
-## 5661 4760 4047 3473 3006 2427 2239 2219 1810 1668 1591  938  930  777  367 
-##   27   30   32   50    0    4    9   41   20   42   44   45   49   18   23 
-##  359  269  220  216 7261 4357 2364  917 1261  350 1081  841  226 1372  890 
-##   43    1   12   13   33   28   31   29 
-##  100 7115 2188 1958  113  354  263  337
-```
-
-```r
-troph <- subset(scobj_merge, subset = final_cluster %in% c(1, 9, 20, 13, 16))
-troph
-```
-
-```
-## An object of class Seurat 
-## 63528 features across 14366 samples within 2 assays 
-## Active assay: integrated (31764 features)
-##  1 other assay present: RNA
-##  2 dimensional reductions calculated: pca, umap
-```
-
-```r
-table(Idents(troph))
-```
-
-```
-## 
-##   16    9   20    1   13 
-## 1668 2364 1261 7115 1958
-```
-
-```r
-table(troph$platform)
-```
-
-```
-## 
-##     10x DropSeq 
-##   14083     283
-```
-
-```r
-# assign cell type labels to clusters based on paper
-troph$celltype <- ifelse(troph$final_cluster == 1, 'VCT',
-                         ifelse(troph$final_cluster == 9, 'VCT p',
-                                ifelse(troph$final_cluster == 16, 'EVT',
-                                       ifelse(troph$final_cluster == 13, 'EVT p',
-                                              ifelse(troph$final_cluster == 20, 'SCT', NA)))))
-Idents(troph) <- 'celltype'
-```
-
-Recompute pca and umap coordinates on trophoblast cells:
-
-
-```r
-# find variable features
-troph <- FindVariableFeatures(object = troph,
-                              selection.method = "vst", 
-                              nfeatures = 2000, 
-                              verbose = T, assay = 'integrated')
-```
-
-```
-## Warning in FindVariableFeatures.Assay(object = assay.data, selection.method
-## = selection.method, : selection.method set to 'vst' but count slot is
-## empty; will use data slot instead
-```
-
-```
-## Warning in eval(predvars, data, env): NaNs produced
-```
-
-```
-## Warning in hvf.info$variance.expected[not.const] <- 10^fit$fitted: number
-## of items to replace is not a multiple of replacement length
-```
-
-```r
-#redo umap / pca
-troph <- ScaleData(object = troph, verbose = FALSE)
-troph <- RunPCA(object = troph, npcs = 10, verbose = FALSE)
-troph <- RunUMAP(object = troph, reduction = "pca", 
-    dims = 1:10)
-DimPlot(object = troph, reduction = "umap", group.by = "celltype") + 
-  theme_classic() +
-  ggtitle('Trophoblast cells (n = 14366)')
-```
-
-![](10_analysis_files/figure-html/unnamed-chunk-3-1.png)<!-- -->
-
-then plot expression of hits
-
-## 2.2 list of hits
+Obtained from Microarray results folder
 
 ### Violin plots
 
 
 ```r
-hitlist <- read_xlsx('../../2019-03-19 currated scRNA-seq gene list.xlsx')
+hitlist <- read_xlsx('../../data/microarray results/2019-03-19 currated scRNA-seq gene list.xlsx')
 hitlist <- hitlist %>% gather(key = 'Geneset', value = 'Gene') %>% filter(!is.na(Gene))
 
+#updated hit list:
+top_20 <- read.csv('../../data/microarray results/topups_Oxygen20_1 2.csv') %>% as_tibble()
+top_1 <- read.csv('../../data/microarray results/topdowns_Oxygen20_1.csv') %>% as_tibble()
+
+x <- top_20 %>% slice(1:15) %>% select(SYMBOL) %>% mutate(Geneset = 'Top Upregulated (20%)')
+y <- top_1%>% slice(1:15) %>% select(SYMBOL) %>% mutate(Geneset = 'Top Upregulated (1%)')
+top <- bind_rows(x, y) %>% rename(Gene = SYMBOL) %>% select(Geneset, Gene)
+```
+
+```
+## Warning in bind_rows_(x, .id): Unequal factor levels: coercing to character
+```
+
+```
+## Warning in bind_rows_(x, .id): binding character and factor vector,
+## coercing into character vector
+
+## Warning in bind_rows_(x, .id): binding character and factor vector,
+## coercing into character vector
+```
+
+```r
+# combine updated to old hit list
+hitlist <- hitlist %>% filter(!Geneset %in% c('Target High', 'Target Low')) %>% bind_rows(top)
+
 # order levels to plot by
-Idents(troph) <- factor(as.character(Idents(troph)), 
+Idents(troph) <- factor(as.character(troph$celltype), 
                         levels = c('VCT', 'VCT p', 'EVT', 'EVT p', 'SCT'))
 
 #violin plots
@@ -348,18 +277,14 @@ VlnPlot(object = troph, features = hitlist$Gene[hitlist$Geneset=='Troph (general
         pt.size = F, ncol = 4, same.y.lims =  T) 
 ```
 
-```
-## Warning: Removed 1 rows containing non-finite values (stat_ydensity).
-```
-
-![](10_analysis_files/figure-html/unnamed-chunk-4-1.png)<!-- -->
+![](10_analysis_files/figure-html/unnamed-chunk-2-1.png)<!-- -->
 
 ```r
 VlnPlot(object = troph, features = hitlist$Gene[hitlist$Geneset=='CTB'],
         pt.size = F, same.y.lims =  T)
 ```
 
-![](10_analysis_files/figure-html/unnamed-chunk-4-2.png)<!-- -->
+![](10_analysis_files/figure-html/unnamed-chunk-2-2.png)<!-- -->
 
 ```r
 VlnPlot(object = troph, features = hitlist$Gene[hitlist$Geneset=='Dist CCTB'], 
@@ -370,7 +295,7 @@ VlnPlot(object = troph, features = hitlist$Gene[hitlist$Geneset=='Dist CCTB'],
 ## Warning: Removed 1 rows containing non-finite values (stat_ydensity).
 ```
 
-![](10_analysis_files/figure-html/unnamed-chunk-4-3.png)<!-- -->
+![](10_analysis_files/figure-html/unnamed-chunk-2-3.png)<!-- -->
 
 ```r
 VlnPlot(object = troph, features = hitlist$Gene[hitlist$Geneset=='Prox CCTB'],
@@ -381,24 +306,21 @@ VlnPlot(object = troph, features = hitlist$Gene[hitlist$Geneset=='Prox CCTB'],
 ## Warning: Removed 1 rows containing non-finite values (stat_ydensity).
 ```
 
-![](10_analysis_files/figure-html/unnamed-chunk-4-4.png)<!-- -->
+![](10_analysis_files/figure-html/unnamed-chunk-2-4.png)<!-- -->
 
 ```r
 VlnPlot(object = troph, features = hitlist$Gene[hitlist$Geneset=='Syn Pre CTB'],
         pt.size = F, same.y.lims =  T)
 ```
 
-![](10_analysis_files/figure-html/unnamed-chunk-4-5.png)<!-- -->
-
-```r
-VlnPlot(object = troph, features = hitlist$Gene[hitlist$Geneset=='Target High'],
-        pt.size = F, same.y.lims =  T, ncol = 5)
+```
+## Warning: Removed 1 rows containing non-finite values (stat_ydensity).
 ```
 
-![](10_analysis_files/figure-html/unnamed-chunk-4-6.png)<!-- -->
+![](10_analysis_files/figure-html/unnamed-chunk-2-5.png)<!-- -->
 
 ```r
-VlnPlot(object = troph, features = hitlist$Gene[hitlist$Geneset=='Target Low'],
+VlnPlot(object = troph, features = hitlist$Gene[hitlist$Geneset=='Top Upregulated (20%)'],
         pt.size = F, same.y.lims =  T, ncol = 5)
 ```
 
@@ -406,22 +328,26 @@ VlnPlot(object = troph, features = hitlist$Gene[hitlist$Geneset=='Target Low'],
 ## Warning: Removed 1 rows containing non-finite values (stat_ydensity).
 ```
 
-![](10_analysis_files/figure-html/unnamed-chunk-4-7.png)<!-- -->
+![](10_analysis_files/figure-html/unnamed-chunk-2-6.png)<!-- -->
+
+```r
+VlnPlot(object = troph, features = hitlist$Gene[hitlist$Geneset=='Top Upregulated (1%)'],
+        pt.size = F, same.y.lims =  T, ncol = 5)
+```
+
+```
+## Warning: Removed 1 rows containing non-finite values (stat_ydensity).
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-2-7.png)<!-- -->
 
 ### heatmap
 
 
 ```r
+Idents(troph) <- 'celltype'
 #plot average expression
 average_exp <- AverageExpression(object = troph, return.seurat = T)
-```
-
-```
-## Finished averaging RNA for cluster VCT
-```
-
-```
-## Finished averaging RNA for cluster VCT p
 ```
 
 ```
@@ -429,7 +355,7 @@ average_exp <- AverageExpression(object = troph, return.seurat = T)
 ```
 
 ```
-## Finished averaging RNA for cluster EVT p
+## Finished averaging RNA for cluster VCT p
 ```
 
 ```
@@ -437,11 +363,11 @@ average_exp <- AverageExpression(object = troph, return.seurat = T)
 ```
 
 ```
-## Finished averaging integrated for cluster VCT
+## Finished averaging RNA for cluster VCT
 ```
 
 ```
-## Finished averaging integrated for cluster VCT p
+## Finished averaging RNA for cluster EVT p
 ```
 
 ```
@@ -449,11 +375,19 @@ average_exp <- AverageExpression(object = troph, return.seurat = T)
 ```
 
 ```
-## Finished averaging integrated for cluster EVT p
+## Finished averaging integrated for cluster VCT p
 ```
 
 ```
 ## Finished averaging integrated for cluster SCT
+```
+
+```
+## Finished averaging integrated for cluster VCT
+```
+
+```
+## Finished averaging integrated for cluster EVT p
 ```
 
 ```
@@ -470,18 +404,50 @@ row_label$Gene <- make.unique(row_label$Gene)
 rownames(row_label) <- gsub('\\.', '-', row_label$Gene)
 row_label$Geneset <- factor(row_label$Geneset, 
                             levels = c('Troph (general)', 'CTB', 'Dist CCTB', 'Prox CCTB', 
-                                       'Syn Pre CTB', 'Target High', 'Target Low'))
+                                       'Syn Pre CTB', 'Top Upregulated (20%)', 'Top Upregulated (1%)'))
 
 row_label <- row_label[intersect(rownames(row_label), rownames(ave_exp_mat)),]
 ave_exp_mat <- ave_exp_mat[rownames(row_label),]
+
+colors_heat <- list(
+  Geneset = c('Troph (general)' = 'grey',
+              'CTB' = '#FFEC23',
+              'Dist CCTB' = '#E41A1C',
+              'Prox CCTB' = '#FF8064',
+              'Syn Pre CTB' = '#4DAF4A',
+              'Top Upregulated (20%)' = '#00C9BF',
+              'Top Upregulated (1%)' = '#984EA3')
+)
+
 pheatmap(ave_exp_mat[,c('VCT', 'VCT p', 'EVT', 'EVT p', 'SCT')], 
          cluster_rows = F, cluster_cols = F, 
          annotation_row = row_label[,'Geneset',F],
+         annotation_colors = colors_heat,
          color = RColorBrewer::brewer.pal(9, "Blues"),
          cellwidth = 15, cellheight = 15)
 ```
 
-![](10_analysis_files/figure-html/unnamed-chunk-5-1.png)<!-- -->
+![](10_analysis_files/figure-html/unnamed-chunk-3-1.png)<!-- -->
+
+```r
+colors_heat2 <- RColorBrewer::brewer.pal(7, 'Dark2')
+names(colors_heat2) <- c('Troph (general)', 'CTB', 'Dist CCTB', 'Prox CCTB', 
+                         'Syn Pre CTB', 'Top Upregulated (20%)', 'Top Upregulated (1%)')
+
+heatmap_plot <- pheatmap(ave_exp_mat[,c('VCT', 'VCT p', 'EVT', 'EVT p', 'SCT')], 
+         cluster_rows = F, cluster_cols = F, 
+         annotation_row = row_label[,'Geneset',F],
+         annotation_colors = list('Geneset' = colors_heat2),
+         color = RColorBrewer::brewer.pal(9, "Blues"),
+         cellwidth = 15, cellheight = 15)
+heatmap_plot
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-3-2.png)<!-- -->
+
+pdf('../../outs/fig5c.pdf', height = 10)
+heatmap_plot
+dev.off()
 
 # 3.0 Pseudotime
 
@@ -536,13 +502,14 @@ documentation.
 
 ```r
 # select number of principal components to use for pseudotime
-plot_pc_variance_explained(cds = monocle_cds, max_components = 50, return_all = F, 
+plot_pc_variance_explained(cds = monocle_cds, max_components = 20, return_all = F, 
                            pseudo_expr = 0, norm_method = 'none') # required argumnets for gaussianff
 ```
 
-![](10_analysis_files/figure-html/unnamed-chunk-7-1.png)<!-- -->
+![](10_analysis_files/figure-html/unnamed-chunk-5-1.png)<!-- -->
 
 ```r
+set.seed(2019)
 monocle_cds <- reduceDimension(monocle_cds, max_components = 2, 
                                norm_method = 'none', pseudo_expr = 0,
                                num_dim = 10, reduction_method = 'tSNE', verbose = T)
@@ -559,33 +526,33 @@ monocle_cds <- reduceDimension(monocle_cds, max_components = 2,
 ```r
 # run density peak clustering on reduced projection
 monocle_cds <- clusterCells(monocle_cds, rho_threshold = 2,
-                         delta_threshold = 5,
+                         delta_threshold = 10,
                          skip_rho_sigma = T,
                          verbose = F)
 ```
 
 ```
-## Distance cutoff calculated to 6.554119
+## Distance cutoff calculated to 5.184694
 ```
 
 ```r
 #  this plot can help us decide number of clusters
-plot_rho_delta(monocle_cds, rho_threshold = 2, delta_threshold = 5)
+plot_rho_delta(monocle_cds, rho_threshold = 2, delta_threshold = 10)
 ```
 
-![](10_analysis_files/figure-html/unnamed-chunk-7-2.png)<!-- -->
+![](10_analysis_files/figure-html/unnamed-chunk-5-2.png)<!-- -->
 
 ```r
 plot_cell_clusters(monocle_cds, color_by = 'as.factor(Cluster)')
 ```
 
-![](10_analysis_files/figure-html/unnamed-chunk-7-3.png)<!-- -->
+![](10_analysis_files/figure-html/unnamed-chunk-5-3.png)<!-- -->
 
 ```r
 plot_cell_clusters(monocle_cds, color_by = 'as.factor(celltype)')
 ```
 
-![](10_analysis_files/figure-html/unnamed-chunk-7-4.png)<!-- -->
+![](10_analysis_files/figure-html/unnamed-chunk-5-4.png)<!-- -->
 
 Run DEG on clusters
 
@@ -610,27 +577,49 @@ ordering_genes <- row.names(clustering_DEG_genes)[order(clustering_DEG_genes$qva
 monocle_cds <- setOrderingFilter(monocle_cds, ordering_genes = ordering_genes)
 monocle_cds <- reduceDimension(monocle_cds, method = 'DDRTree', 
                                norm_method = 'none', pseudo_expr = 0)
+```
+
+```
+## Registered S3 methods overwritten by 'proxy':
+##   method               from    
+##   print.registry_field registry
+##   print.registry_entry registry
+```
+
+```r
 monocle_cds <- orderCells(monocle_cds)
 plot_cell_trajectory(monocle_cds, color_by = "as.factor(celltype)")
 ```
 
-![](10_analysis_files/figure-html/unnamed-chunk-9-1.png)<!-- -->
+![](10_analysis_files/figure-html/unnamed-chunk-7-1.png)<!-- -->
 
-Pretty good
+```r
+plot_cell_trajectory(monocle_cds, color_by = "Cluster")
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-7-2.png)<!-- -->
+
+Pretty good.
 
 ### Based on top 1000 variable genes
 
 
 ```r
 top1000variable <- troph@assays$integrated@var.features[1:1000]
-monocle_cds <- setOrderingFilter(monocle_cds, ordering_genes = top1000variable)
-monocle_cds <- reduceDimension(monocle_cds, method = 'DDRTree',
+monocle_cds_top1000 <- setOrderingFilter(monocle_cds, ordering_genes = top1000variable)
+monocle_cds_top1000 <- reduceDimension(monocle_cds_top1000, method = 'DDRTree',
                                norm_method = 'none', pseudo_expr = 0)
-monocle_cds <- orderCells(monocle_cds)
-plot_cell_trajectory(monocle_cds, color_by = "as.factor(celltype)")
+monocle_cds_top1000 <- orderCells(monocle_cds_top1000)
+plot_cell_trajectory(monocle_cds_top1000, color_by = "as.factor(celltype)")
 ```
 
-![](10_analysis_files/figure-html/unnamed-chunk-10-1.png)<!-- -->
+![](10_analysis_files/figure-html/unnamed-chunk-8-1.png)<!-- -->
+
+```r
+plot_cell_trajectory(monocle_cds_top1000, color_by = "Pseudotime")
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-8-2.png)<!-- -->
 
 This looks pree good. Can it be better?
 
@@ -651,15 +640,729 @@ saveRDS(troph_DEG_genes, '../../data/interim/troph_DEG_genes.rds')
 troph_DEG_genes <- readRDS('../../data/interim/troph_DEG_genes.rds')
 
 ordering_genes <- row.names(troph_DEG_genes)[order(troph_DEG_genes$qval)][1:1000]
-monocle_cds <- setOrderingFilter(monocle_cds, ordering_genes = ordering_genes)
-monocle_cds <- reduceDimension(monocle_cds, method = 'DDRTree', 
+monocle_cds_DEG <- setOrderingFilter(monocle_cds, ordering_genes = ordering_genes)
+monocle_cds_DEG <- reduceDimension(monocle_cds_DEG, method = 'DDRTree', 
                                norm_method = 'none', pseudo_expr = 0)
-monocle_cds <- orderCells(monocle_cds)
-plot_cell_trajectory(monocle_cds, color_by = "as.factor(celltype)")
+monocle_cds_DEG <- orderCells(monocle_cds_DEG)
+plot_cell_trajectory(monocle_cds_DEG, color_by = "as.factor(celltype)")
 ```
 
-![](10_analysis_files/figure-html/unnamed-chunk-12-1.png)<!-- -->
+![](10_analysis_files/figure-html/unnamed-chunk-10-1.png)<!-- -->
 
 Best so far
 
+### Based on all genes
+
+Takes > 12 hours, will omit for now.
+
+
+```r
+troph_expressed_genes <- rownames(troph)[Matrix::rowMeans(troph@assays$RNA@counts) > 0.1]
+length(troph_expressed_genes) # 10491
+```
+
+```
+## [1] 10491
+```
+
+```r
+ordering_genes <- troph_expressed_genes
+monocle_cds_all <- setOrderingFilter(monocle_cds, ordering_genes = ordering_genes)
+monocle_cds_all <- reduceDimension(monocle_cds_all, method = 'DDRTree', 
+                               norm_method = 'none', pseudo_expr = 0)
+monocle_cds_all <- orderCells(monocle_cds_all)
+plot_cell_trajectory(monocle_cds_all, color_by = "as.factor(celltype)")
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-11-1.png)<!-- -->
+
+### Based on trophoblast marker genes.
+
+First we assign cell type by trophoblast marker genes
+
+
+```r
+EGFR_id <- row.names(subset(fData(monocle_cds), gene_short_name == "EGFR"))
+HLAG_id <- row.names(subset(fData(monocle_cds), gene_short_name == "HLA-G"))
+ENDOU_id <- row.names(subset(fData(monocle_cds), gene_short_name == "ENDOU"))
+MKI67_id <- row.names(subset(fData(monocle_cds), gene_short_name == "MKI67"))
+  
+
+cth <- newCellTypeHierarchy()
+
+cth <- addCellType(cth,
+                   cell_type_name = "CTB",
+                   classify_func = function(x) { x[EGFR_id,] >= 0.1 })
+
+cth <- addCellType(cth,
+                   cell_type_name = "CTB p", parent_cell_type_name = "CTB",
+                   classify_func = function(x) { x[MKI67_id,] >= 0.1 })
+
+cth <- addCellType(cth,
+                   cell_type_name = "EVT",
+                   classify_func = function(x) { x[HLAG_id,] >= 0.1 })
+
+cth <- addCellType(cth,
+                   cell_type_name = "EVT p", parent_cell_type_name = "EVT",
+                   classify_func = function(x) { x[MKI67_id,] >= 0.1 })
+
+cth <- addCellType(cth,
+                   cell_type_name = "STB",
+                   classify_func = function(x) { x[ENDOU_id,] >= 0.1})
+
+monocle_cds_class <- classifyCells(monocle_cds, cth)
+```
+
+Now we select additional genes that covary with these marker genes
+
+
+```r
+# do this on only the genes with expression over a minimum value
+troph_expressed_genes <- rownames(troph)[Matrix::rowMeans(troph@assays$RNA@counts) > 0.1]
+length(troph_expressed_genes) # 10491
+```
+
+```
+## [1] 10491
+```
+
+```r
+# find expressed genes
+marker_diff <- markerDiffTable(monocle_cds_class[,],
+                               cth, cores = 24)
+semisup_clustering_genes <-
+    row.names(subset(marker_diff, qval < 0.05))
+semisup_clustering_genes <-
+    row.names(marker_diff)[order(marker_diff$qval)][1:1000]
+```
+
+
+```r
+monocle_cds_class <- setOrderingFilter(monocle_cds, semisup_clustering_genes)
+monocle_cds_class <- reduceDimension(monocle_cds_class, max_components = 2,
+    method = 'DDRTree', norm_method = 'none', pseudo_expr = 0)
+monocle_cds_class <- orderCells(monocle_cds_class)
+plot_cell_trajectory(monocle_cds_class, color_by = "celltype") +
+    theme(legend.position = "right")
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-14-1.png)<!-- -->
+
 ## 3.3 Plot gene expression along trajectory
+
+Start with overview (fig 5a, 5b)
+### Fig5a, 5b
+
+
+```r
+cols1 <- c('#919191', '#feb24c', '#fd8d3c', '#fc4e2a', '#e31a1c')
+cols2 <- c('#919191', '#919191', # greys
+           '#ffeda0', '#feb24c', '#fc4e2a', # yellow/orange
+           '#e31a1c', '#bd0026') # red
+cols3<- c('#919191', '#919191', '#919191', # greys
+          '#feb24c', '#fc4e2a', # yellow/orange
+           '#e31a1c', '#bd0026') # red
+
+# add expression data to pdata
+pDat <- monocle_cds@phenoData@data %>% as_tibble %>%
+  mutate(dim1 = reducedDimS(monocle_cds)[1,], dim2 = reducedDimS(monocle_cds)[2,]) %>%
+  bind_cols(t(troph@assays$integrated@data[hitlist$Gene,]) %>% as.data.frame)
+
+pDat_melt<- pDat %>% select(dim1:NRN1, celltype) %>% 
+  gather(key = Gene, value = Expression, -dim1, -dim2, -celltype) %>%
+  left_join(hitlist, by = c('Gene'))
+
+# plot one gene test
+ggplot(pDat_melt %>% filter(Gene == 'OAS1'), aes(x = dim1, y = dim2, col = Expression)) +
+  geom_point() +
+  scale_color_gradientn(colours = cols3)
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-15-1.png)<!-- -->
+
+```r
+# overview
+fig5a <- ggplot(pDat, aes(x = dim1, y = dim2, col = celltype)) +
+  geom_point(alpha = 0.7, size = 1) +
+  scale_color_brewer(palette = 'Set1')+
+  labs(x = 'Dimension 1', y = 'Dimension 2')
+fig5a
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-15-2.png)<!-- -->
+
+```r
+# classic trophoblast markers
+fig5b <- ggplot(pDat_melt %>% filter(Gene %in% c('KRT7', 'EGFR', 'ERVFRD-1', 'HLA-G')) %>%
+         mutate(Gene = factor(as.character(Gene), levels = c('KRT7', 'EGFR', 'ERVFRD-1', 'HLA-G'))),
+       aes(x = dim1, y = dim2, col = Expression)) +
+  geom_point(size = 0.8, alpha = 0.8) +
+  scale_color_gradientn(colours = cols2) +
+  facet_wrap(~Gene) +
+  labs(x = 'Dimension 1', y = 'Dimension 2')
+fig5b
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-15-3.png)<!-- -->
+
+tiff(file = '../../outs/fig5a.tiff',width = 7.5, height = 5, units = 'in', res = 300)
+fig5a
+dev.off()
+
+tiff(file = '../../outs/fig5b.tiff',width = 9.5, height = 7, units = 'in', res = 300)
+fig5b
+dev.off()
+
+Validate O2 hits
+
+###  1%
+ 
+Upregulated in 1%
+
+
+```r
+#facet grid
+fig5d <- ggplot(pDat_melt %>% filter(Geneset == 'Top Upregulated (1%)'),
+                aes(x = dim1, y = dim2, col = Expression)) +
+  geom_point(size = 0.8, alpha = 0.8) +
+  scale_color_gradientn(colours = cols2) + 
+  facet_wrap(~Gene, scale = 'free', nrow = 3) +
+  labs(x = 'Dimension 1', y = 'Dimension 2')
+fig5d
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-16-1.png)<!-- -->
+
+```r
+# with cowplot::plot_grid()
+plot_list_low <- list()
+
+gene_ind <- hitlist %>% filter(Geneset == 'Top Upregulated (1%)') %>% pull(Gene)
+  
+  #c('LOX', 'FOXO1', 'HEY1', 'HCAR3', 'LPCAT2', 'FLT1', 'HTRA1', 'EGLN3', 'CSF1R', 'PLAUR')
+  
+for (i in 1:length(gene_ind)) {
+  if(gene_ind[i] %in% c('LOX', 'ACTC1', 'BIRC7', 'SPNS2', 'AK4')) {
+    cols <-  c('#919191', # greys
+            '#fc4e2a', # /orange
+           '#e31a1c', '#bd0026') # red # high contrast color scale
+  } else if (gene_ind[i] %in% c('TNFSF10', 'S100A4', 'JAM2', 'EGLN3')) {
+    cols <- c('#919191', '#919191', '#919191', # greys
+            '#fc4e2a', # /orange
+           '#e31a1c', '#bd0026')
+  } else if (gene_ind[i] %in% c('RORA', 'AK4', 'TSC22D3', 'NRN1')) {
+    cols <- c('#919191', '#919191', '#919191', # greys
+            '#FEB24C', '#fc4e2a', # /orange
+           '#e31a1c', '#bd0026')
+  } else {
+    cols <- c('#919191', '#919191',  # greys
+            '#fc4e2a', # /orange
+           '#e31a1c', '#bd0026') # red
+  }
+  
+  plot_list_low[[i]] <-
+    ggplot(pDat_melt %>% filter(Gene == gene_ind[i]), aes(x = dim1, y = dim2, col = Expression)) +
+    geom_point(size = 0.2, alpha = 1) +
+    scale_color_gradientn(colours = cols) + # red
+    facet_wrap(~Gene, scale = 'free') +
+    labs(x = '', y = '', col = '') +
+    theme(legend.position = 'none')
+}
+
+plot_grid(plotlist = plot_list_low, nrow = 3)
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-16-2.png)<!-- -->
+
+tiff(file = '../../outs/fig5d.tiff', width = 11, height = 7, units = 'in', res = 300)
+plot_grid(plotlist = plot_list_low, nrow = 3)
+dev.off()
+
+### 20%
+
+Upregulated in 20%
+
+
+```r
+fig5d <- ggplot(pDat_melt %>% filter(Geneset == 'Top Upregulated (20%)'),
+                aes(x = dim1, y = dim2, col = Expression)) +
+  geom_point(size = 0.8, alpha = 1) +
+  facet_wrap(~Gene, scale = 'free', nrow = 3) +
+  labs(x = 'Dimension 1', y = 'Dimension 2')
+fig5d
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-17-1.png)<!-- -->
+
+```r
+# with cowplot::plot_grid()
+plot_list_high <- list()
+gene_ind <- c('PEG10', 'ANK3', 'CDC20', 'PARP1', 'GSTA3',
+              'CCNA2', 'NRP2', 'CDK1', 'TOP2A', 'CCNB1')
+gene_ind <- pDat_melt %>% filter(Geneset == 'Top Upregulated (20%)') %>% pull(Gene) %>% unique
+
+for (i in 1:length(gene_ind)) {
+  if (gene_ind[i] %in% c('OAS1', 'GSTA3', 'CDK1')) {
+    cols <- c('#919191', '#919191', '#919191', # greys
+            '#fc4e2a', # /orange
+           '#e31a1c', '#bd0026') # red
+  } else if (gene_ind[i] %in% c('IFIT3', 'CENPF', 'PARP1', 'TOP2A', 'KPNA2', 'NRP2')){
+    cols <- c('#919191', '#919191', #GREYS 
+              #'#FEB24C', #YELLOW
+              '#fc4e2a', #ORANGE
+              '#bd0026', '#bd0026') #red
+  } else if(gene_ind[i] %in% c('DLGAP5', 'OXCT1', 'CENPF', 'KIF20A', 'NCAPH')){
+    cols <-  c('#919191', '#919191','#919191', '#919191',#GREYS 
+             # '#FEB24C', #YELLOW
+              '#fc4e2a', #ORAGNE
+              '#bd0026', '#bd0026', '#bd0026', '#bd0026') #red
+  } else {
+    cols <-  c('#919191', '#919191',#GREYS 
+              #'#FEB24C', 
+              '#fc4e2a', #ORANGE
+              '#bd0026', '#bd0026', '#bd0026', '#bd0026') #red
+  }
+  
+  plot_list_high[[i]] <-
+    ggplot(pDat_melt %>% filter(Gene == gene_ind[i]), aes(x = dim1, y = dim2, col = Expression)) +
+    geom_point(size = 0.2, alpha = 1) +
+    scale_color_gradientn(colours = cols) + 
+    facet_wrap(~Gene, scale = 'free') +
+    labs(x = '', y = '', col = '') +
+    theme(legend.position = 'none')
+}
+
+plot_grid(plotlist = plot_list_high, nrow = 3)
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-17-2.png)<!-- -->
+
+tiff(file = '../../outs/fig5e.tiff',  width = 11, height = 7, units = 'in', res = 300)
+plot_grid(plotlist = plot_list_high, nrow = 3)
+dev.off()
+
+## 3.4 Slingshot
+
+Here I try Slingshot because it can take a reduced dimensional matrix of the cells
+
+
+```r
+sce <- slingshot(data = troph@reductions$umap@cell.embeddings, 
+                 clusterLabels = troph$celltype)
+```
+
+```
+## Using full covariance matrix
+```
+
+```r
+line <- getLineages(troph@reductions$umap@cell.embeddings, 
+                    clusterLabels = troph$celltype, 
+                    start.clus = 'VCT')
+```
+
+```
+## Using full covariance matrix
+```
+
+```r
+crv1 <- getCurves(line)
+```
+
+```
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+
+## Warning in regularize.values(x, y, ties, missing(ties)): collapsing to
+## unique 'x' values
+```
+
+```r
+plot(troph@reductions$umap@cell.embeddings[,1:2], 
+     col = brewer.pal(9,"Set1")[as.numeric(as.factor(troph$celltype))], asp = 1, pch = 16)
+lines(line, lwd = 3, col = 'black')
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-18-1.png)<!-- -->
+
+```r
+plot(troph@reductions$umap@cell.embeddings[,1:2], 
+     col = brewer.pal(9,"Set1")[as.numeric(as.factor(troph$celltype))], asp = 1, pch = 16)
+lines(crv1, lwd = 3, col = 'black')
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-18-2.png)<!-- -->
+
+```r
+pDat <- troph@meta.data %>% 
+  as_tibble %>% 
+  bind_cols(as_tibble(sce@reducedDim)) %>% 
+  bind_cols(as_tibble(troph@reductions$umap@cell.embeddings)) %>%
+  mutate(pseudotime = slingPseudotime(sce)[,1])
+
+ggplot(pDat, aes(x = UMAP_1, y = UMAP_2, col = pseudotime)) +
+  geom_point()
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-18-3.png)<!-- -->
+
+```r
+ggplot(pDat, aes(x = celltype, y = pseudotime, col = celltype)) +
+  geom_boxplot()
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-18-4.png)<!-- -->
