@@ -73,7 +73,7 @@ system.time(
 
 ```
 ##    user  system elapsed 
-##  808.58   40.12  857.78
+##  790.44   55.26  855.77
 ```
 
 ```r
@@ -240,7 +240,7 @@ system.time(
 
 ```
 ##    user  system elapsed 
-##   34.11    6.87   42.10
+##   33.50    9.74   44.01
 ```
 
 ```r
@@ -511,7 +511,7 @@ genes <- tibble(Full_ID = raw$Gene) %>%
   mutate(Gene = ifelse(is.na(Gene), Full_ID, Gene))
 
 # ensure all hitlist genes can be found
-hitlist <- read_xlsx('../../2019-03-19 currated scRNA-seq gene list.xlsx') %>% 
+hitlist <- read_xlsx('../../data/microarray results/2019-03-19 currated scRNA-seq gene list.xlsx') %>% 
   gather(key = 'Geneset', value = 'Gene') %>% filter(!is.na(Gene))
 all(hitlist$Gene %in% genes$Gene) #T
 ```
@@ -611,7 +611,7 @@ anchors <- FindIntegrationAnchors(object.list = reference_list, dims = 1:30) # f
 ```
 
 ```
-## Finding mutual nearest neighborhoods
+## Finding anchors
 ```
 
 ```
@@ -619,7 +619,7 @@ anchors <- FindIntegrationAnchors(object.list = reference_list, dims = 1:30) # f
 ```
 
 ```
-## Filtering Anchors
+## Filtering anchors
 ```
 
 ```
@@ -627,7 +627,7 @@ anchors <- FindIntegrationAnchors(object.list = reference_list, dims = 1:30) # f
 ```
 
 ```
-## Extracting within-dataset neighbors!
+## Extracting within-dataset neighbors
 ```
 
 ```r
@@ -676,4 +676,66 @@ plot_grid(p1, p2)
 
 ```r
 saveRDS(scobj_merge, '../../data/interim/01_scobj_merge.rds')
+```
+
+# SessionInfo
+
+
+```r
+sessionInfo()
+```
+
+```
+## R version 3.6.0 (2019-04-26)
+## Platform: x86_64-w64-mingw32/x64 (64-bit)
+## Running under: Windows Server x64 (build 14393)
+## 
+## Matrix products: default
+## 
+## locale:
+## [1] LC_COLLATE=English_Canada.1252  LC_CTYPE=English_Canada.1252   
+## [3] LC_MONETARY=English_Canada.1252 LC_NUMERIC=C                   
+## [5] LC_TIME=English_Canada.1252    
+## 
+## attached base packages:
+## [1] stats     graphics  grDevices utils     datasets  methods   base     
+## 
+## other attached packages:
+##  [1] tidyr_0.8.3      cowplot_0.9.4    ggplot2_3.1.1    readr_1.3.1     
+##  [5] Seurat_3.0.0     dplyr_0.8.0.1    kableExtra_1.1.0 knitr_1.22      
+##  [9] stringr_1.4.0    plyr_1.8.4       readxl_1.3.1    
+## 
+## loaded via a namespace (and not attached):
+##  [1] tsne_0.1-3          nlme_3.1-139        bitops_1.0-6       
+##  [4] webshot_0.5.1       RColorBrewer_1.1-2  httr_1.4.0         
+##  [7] sctransform_0.2.0   tools_3.6.0         utf8_1.1.4         
+## [10] R6_2.4.0            irlba_2.3.3         KernSmooth_2.23-15 
+## [13] lazyeval_0.2.2      colorspace_1.4-1    withr_2.1.2        
+## [16] npsurv_0.4-0        gridExtra_2.3       tidyselect_0.2.5   
+## [19] compiler_3.6.0      cli_1.1.0           rvest_0.3.3        
+## [22] xml2_1.2.0          plotly_4.9.0        labeling_0.3       
+## [25] caTools_1.17.1.2    scales_1.0.0        lmtest_0.9-37      
+## [28] ggridges_0.5.1      pbapply_1.4-0       digest_0.6.18      
+## [31] rmarkdown_1.12      R.utils_2.8.0       pkgconfig_2.0.2    
+## [34] htmltools_0.3.6     bibtex_0.4.2        htmlwidgets_1.3    
+## [37] rlang_0.3.4         rstudioapi_0.10     zoo_1.8-5          
+## [40] jsonlite_1.6        ica_1.0-2           gtools_3.8.1       
+## [43] R.oo_1.22.0         magrittr_1.5        Matrix_1.2-17      
+## [46] fansi_0.4.0         Rcpp_1.0.1          munsell_0.5.0      
+## [49] reticulate_1.12     ape_5.3             R.methodsS3_1.7.1  
+## [52] stringi_1.4.3       yaml_2.2.0          gbRd_0.4-11        
+## [55] MASS_7.3-51.4       gplots_3.0.1.1      Rtsne_0.15         
+## [58] grid_3.6.0          parallel_3.6.0      gdata_2.18.0       
+## [61] listenv_0.7.0       ggrepel_0.8.0       crayon_1.3.4       
+## [64] lattice_0.20-38     splines_3.6.0       hms_0.4.2          
+## [67] SDMTools_1.1-221.1  pillar_1.3.1        igraph_1.2.4.1     
+## [70] reshape2_1.4.3      future.apply_1.2.0  codetools_0.2-16   
+## [73] glue_1.3.1          evaluate_0.13       lsei_1.2-0         
+## [76] metap_1.1           data.table_1.12.2   png_0.1-7          
+## [79] Rdpack_0.11-0       cellranger_1.1.0    gtable_0.3.0       
+## [82] RANN_2.6.1          purrr_0.3.2         future_1.12.0      
+## [85] assertthat_0.2.1    xfun_0.6            rsvd_1.0.0         
+## [88] survival_2.44-1.1   viridisLite_0.3.0   tibble_2.1.1       
+## [91] cluster_2.0.9       globals_0.12.4      fitdistrplus_1.0-14
+## [94] ROCR_1.0-7
 ```

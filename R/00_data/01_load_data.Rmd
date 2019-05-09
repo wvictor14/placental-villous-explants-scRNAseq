@@ -213,7 +213,7 @@ genes <- tibble(Full_ID = raw$Gene) %>%
   mutate(Gene = ifelse(is.na(Gene), Full_ID, Gene))
 
 # ensure all hitlist genes can be found
-hitlist <- read_xlsx('../../2019-03-19 currated scRNA-seq gene list.xlsx') %>% 
+hitlist <- read_xlsx('../../data/microarray results/2019-03-19 currated scRNA-seq gene list.xlsx') %>% 
   gather(key = 'Geneset', value = 'Gene') %>% filter(!is.na(Gene))
 all(hitlist$Gene %in% genes$Gene) #T
 
@@ -289,4 +289,10 @@ plot_grid(p1, p2)
 
 ```{r eval = F}
 saveRDS(scobj_merge, '../../data/interim/01_scobj_merge.rds')
+```
+
+# SessionInfo
+
+```{r}
+sessionInfo()
 ```
