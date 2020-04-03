@@ -32,6 +32,9 @@ library(tidyr)
 library(monocle)
 library(slingshot)
 library(RColorBrewer)
+library(scales)
+source('../plot_genes_branched_heatmap_vyedit.R')
+
 troph <- readRDS('../../data/interim/02_troph_merge.rds')
 ```
 
@@ -184,10 +187,10 @@ clustering ('density-peak'), then finding the top 1000 differentially expressed 
 performing the pseudotime analysis on those genes. This is the recommended approach from the
 documentation.
 
-```{r}
+```{r, eval = FALSE}
 # select number of principal components to use for pseudotime
-plot_pc_variance_explained(cds = monocle_cds, max_components = 20, return_all = F, 
-                           pseudo_expr = 0, norm_method = 'none') # required argumnets for gaussianff
+#plot_pc_variance_explained(cds = monocle_cds, max_components = 20, return_all = F, 
+#                           pseudo_expr = 0, norm_method = 'none') # required argumnets for gaussianff
 
 set.seed(2019)
 monocle_cds <- reduceDimension(monocle_cds, max_components = 2, 
@@ -220,7 +223,7 @@ clustering_DEG_genes <- differentialGeneTest(monocle_cds,
 
 saveRDS(clustering_DEG_genes, '../../data/interim/clustering_DEG_genes.rds')
 
-```{r}
+```{r, eval = FALSE}
 clustering_DEG_genes <- readRDS('../../data/interim/clustering_DEG_genes.rds')
 
 # select top 1000 differnetially expressed genes to order the cells
@@ -231,13 +234,25 @@ monocle_cds <- reduceDimension(monocle_cds, method = 'DDRTree',
 monocle_cds <- orderCells(monocle_cds)
 plot_cell_trajectory(monocle_cds, color_by = "as.factor(celltype)")
 plot_cell_trajectory(monocle_cds, color_by = "Cluster")
+
+# set root state
+GM_state <- function(cds){
+  if (length(unique(pData(cds)$State)) > 1){
+    T0_counts <- table(pData(cds)$State, pData(cds)$celltype)[,"VCT"]
+    return(as.numeric(names(T0_counts)[which
+          (T0_counts == max(T0_counts))]))
+  } else {
+    return (1)
+  }
+}
+monocle_cds <- orderCells(monocle_cds, root_state = GM_state(monocle_cds))
 ```
 
 Pretty good.
 
 ### Based on top 1000 variable genes
 
-```{r, eval = T}
+```{r, eval = FALSE}
 top1000variable <- troph@assays$integrated@var.features[1:1000]
 monocle_cds_top1000 <- setOrderingFilter(monocle_cds, ordering_genes = top1000variable)
 monocle_cds_top1000 <- reduceDimension(monocle_cds_top1000, method = 'DDRTree',
@@ -247,9 +262,18 @@ plot_cell_trajectory(monocle_cds_top1000, color_by = "as.factor(celltype)")
 
 plot_cell_trajectory(monocle_cds_top1000, color_by = "Pseudotime")
 
+monocle_cds <- monocle_cds_top1000
+```
+
+saveRDS(monocle_cds_top1000, '../../data/interim/10_monocle_cds_top1000.rds')
+
+```{r}
+monocle_cds <- readRDS('../../data/interim/10_monocle_cds_top1000.rds')
 ```
 
 This looks pree good. Can it be better?
+
+**this is what we used for the final publication**
 
 ### Based on top 1000 DEGs between all trophoblast subtypes
 
@@ -262,7 +286,7 @@ troph_DEG_genes <- differentialGeneTest(monocle_cds,
 
 saveRDS(troph_DEG_genes, '../../data/interim/troph_DEG_genes.rds')
 
-```{r, eval = T}
+```{r, eval = FALSE}
 troph_DEG_genes <- readRDS('../../data/interim/troph_DEG_genes.rds')
 
 ordering_genes <- row.names(troph_DEG_genes)[order(troph_DEG_genes$qval)][1:1000]
@@ -274,13 +298,12 @@ plot_cell_trajectory(monocle_cds_DEG, color_by = "as.factor(celltype)")
 
 ```
 
-Best so far
 
 ### Based on all genes
 
 Takes > 12 hours, will omit for now.
 
-```{r eval = T}
+```{r eval = F}
 troph_expressed_genes <- rownames(troph)[Matrix::rowMeans(troph@assays$RNA@counts) > 0.1]
 length(troph_expressed_genes) # 10491
 
@@ -296,7 +319,7 @@ plot_cell_trajectory(monocle_cds_all, color_by = "as.factor(celltype)")
 
 First we assign cell type by trophoblast marker genes
 
-```{r eval = T}
+```{r eval = F}
 EGFR_id <- row.names(subset(fData(monocle_cds), gene_short_name == "EGFR"))
 HLAG_id <- row.names(subset(fData(monocle_cds), gene_short_name == "HLA-G"))
 ENDOU_id <- row.names(subset(fData(monocle_cds), gene_short_name == "ENDOU"))
@@ -330,7 +353,7 @@ monocle_cds_class <- classifyCells(monocle_cds, cth)
 
 Now we select additional genes that covary with these marker genes
 
-```{r eval = T}
+```{r eval = F}
 # do this on only the genes with expression over a minimum value
 troph_expressed_genes <- rownames(troph)[Matrix::rowMeans(troph@assays$RNA@counts) > 0.1]
 length(troph_expressed_genes) # 10491
@@ -344,7 +367,7 @@ semisup_clustering_genes <-
     row.names(marker_diff)[order(marker_diff$qval)][1:1000]
 ```
 
-```{r eval = T}
+```{r eval = F}
 monocle_cds_class <- setOrderingFilter(monocle_cds, semisup_clustering_genes)
 monocle_cds_class <- reduceDimension(monocle_cds_class, max_components = 2,
     method = 'DDRTree', norm_method = 'none', pseudo_expr = 0)
@@ -359,6 +382,9 @@ Start with overview (fig 5a, 5b)
 ### Fig5a, 5b
 
 ```{r}
+# Replace monocle_cds with whichever ordering method ended up picking:
+# monocle_cds <- monocle_cds_top1000
+
 cols1 <- c('#919191', '#feb24c', '#fd8d3c', '#fc4e2a', '#e31a1c')
 cols2 <- c('#919191', '#919191', # greys
            '#ffeda0', '#feb24c', '#fc4e2a', # yellow/orange
@@ -391,13 +417,16 @@ fig5a
   
   
 # classic trophoblast markers
-fig5b <- ggplot(pDat_melt %>% filter(Gene %in% c('KRT7', 'EGFR', 'ERVFRD-1', 'HLA-G')) %>%
-         mutate(Gene = factor(as.character(Gene), levels = c('KRT7', 'EGFR', 'ERVFRD-1', 'HLA-G'))),
-       aes(x = dim1, y = dim2, col = Expression)) +
+fig5b <- pDat_melt %>% 
+  filter(Gene %in% c('KRT7', 'EGFR', 'ERVFRD-1', 'HLA-G')) %>%
+  mutate(Gene = factor(as.character(Gene), levels = c('KRT7', 'EGFR', 'ERVFRD-1', 'HLA-G'))) %>%
+  group_by(Gene) %>%
+  mutate(Expression = Expression/sd(Expression)) %>%
+  ggplot(aes(x = dim1, y = dim2, col = Expression)) +
   geom_point(size = 0.8, alpha = 0.8) +
-  scale_color_gradientn(colours = cols2) +
+  scale_color_gradientn(colors = c('grey', 'yellow', 'red'), limits = c(0, 3), oob = squish) + 
   facet_wrap(~Gene) +
-  labs(x = 'Dimension 1', y = 'Dimension 2')
+  labs(x = 'Dimension 1', y = 'Dimension 2', color = 'Expression')
 fig5b
 ```
 
@@ -416,16 +445,18 @@ Validate O2 hits
 Upregulated in 1%
 
 ```{r}
+library(scales)
 #facet grid
 fig5d <- ggplot(pDat_melt %>% filter(Geneset == 'Top Upregulated (1%)'),
-                aes(x = dim1, y = dim2, col = Expression)) +
+                aes(x = dim1, y = dim2, 
+                    col = (Expression) / sd(Expression))) +
   geom_point(size = 0.8, alpha = 0.8) +
-  scale_color_gradientn(colours = cols2) + 
+  scale_color_gradientn(colors = c('grey', 'yellow', 'red'), limits = c(0, 3), oob = squish) + 
   facet_wrap(~Gene, scale = 'free', nrow = 3) +
-  labs(x = 'Dimension 1', y = 'Dimension 2')
+  labs(x = 'Dimension 1', y = 'Dimension 2', color = 'Expression')
 fig5d
 
-
+### Old approach, way too tedious
 # with cowplot::plot_grid()
 plot_list_low <- list()
 
@@ -465,7 +496,7 @@ plot_grid(plotlist = plot_list_low, nrow = 3)
 ```
 
 tiff(file = '../../outs/fig5d.tiff', width = 11, height = 7, units = 'in', res = 300)
-plot_grid(plotlist = plot_list_low, nrow = 3)
+fig5d
 dev.off()
 
 ### 20%
@@ -473,12 +504,13 @@ dev.off()
 Upregulated in 20%
 
 ```{r}
-fig5d <- ggplot(pDat_melt %>% filter(Geneset == 'Top Upregulated (20%)'),
-                aes(x = dim1, y = dim2, col = Expression)) +
+fig5e <- ggplot(pDat_melt %>% filter(Geneset == 'Top Upregulated (20%)'),
+                aes(x = dim1, y = dim2, col = Expression / sd(Expression))) +
   geom_point(size = 0.8, alpha = 1) +
+  scale_color_gradientn(colors = c('grey', 'yellow', 'red'), limits = c(0, 3), oob = squish) + 
   facet_wrap(~Gene, scale = 'free', nrow = 3) +
-  labs(x = 'Dimension 1', y = 'Dimension 2')
-fig5d
+  labs(x = 'Dimension 1', y = 'Dimension 2', color = 'Expression')
+fig5e
 
 # with cowplot::plot_grid()
 plot_list_high <- list()
@@ -521,14 +553,144 @@ plot_grid(plotlist = plot_list_high, nrow = 3)
 ```
 
 tiff(file = '../../outs/fig5e.tiff',  width = 11, height = 7, units = 'in', res = 300)
-plot_grid(plotlist = plot_list_high, nrow = 3)
+fig5e
 dev.off()
 
-## 3.4 Slingshot
+
+## 3.4 By state
+
+```{r}
+plot_cell_trajectory(monocle_cds, color_by = "State") +
+  facet_wrap(~State)
+
+plot_cell_trajectory(monocle_cds, color_by = "Pseudotime", show_branch_points  = F) +
+  scale_color_viridis_c()
+
+# identify state containing mostly CTB cells
+
+blast_genes <- row.names(subset(fData(monocle_cds),
+                                gene_short_name %in% c("SPINT1", "TP63", "EGFR", 'MKI67', 'KRT7')))
+plot_genes_jitter(monocle_cds[blast_genes,],
+    grouping = "State",
+    min_expr = 0.1,
+    relative_expr = F)
+```
+pdf('../../outs/fig5_by_pseudotime.pdf')
+plot_cell_trajectory(monocle_cds, color_by = "Pseudotime", show_branch_points  = F) +
+  scale_color_viridis_c()
+dev.off()
+
+## 3.5 Heatmap
+
+Figure 5F
+
+**Update Oct 11th**: Alex wants some CTB / EVT genes to be included into the heatmap
+
+```{r}
+# EVT genes to add to heatmap
+ctb_evt <- tibble(
+  Geneset = rep('EVT', 3),
+  Gene = c('HLA-G', 'ITGA5', 'LAIR2')
+)
+
+hitlist <- ctb_evt %>% 
+  bind_rows(hitlist)
+
+
+to_be_tested <- hitlist %>% 
+  filter(Geneset %in% c('Top Upregulated (20%)', 'Top Upregulated (1%)',
+                        'EVT', 'CTB')) %>% pull(Gene)
+
+
+# row annotation
+row_anno <- hitlist %>% 
+  filter(Geneset %in% c('Top Upregulated (20%)', 'Top Upregulated (1%)',
+                        'EVT', 'CTB')) %>%
+  select(Geneset) %>%
+  as.data.frame()
+rownames(row_anno) <- to_be_tested
+
+# color annotations
+## for row
+geneset_cols <- RColorBrewer::brewer.pal(7, 'Dark2')
+names(geneset_cols) <- c('Troph (general)', 'CTB', 'Dist CCTB', 'Prox CCTB', 
+                         'Syn Pre CTB', 'Top Upregulated (20%)', 'Top Upregulated (1%)')
+geneset_cols <- geneset_cols[c(6, 7)]
+geneset_cols <- c(geneset_cols, setNames(c('#E41A1C', '#4DAF4A'), nm = c('CTB', 'EVT')))
+
+## for columns
+cell_trajectory_cols <- c('Extravillous pathway' = '#b30000', #darkred
+                          'Pre-branch' = 'grey',
+                          'Syncytiotrophoblast pathway' = '#003cb3') # darkblue
+
+pseudotime_cols <- viridis_pal()(100) 
+names(pseudotime_cols) <- seq(0,40,length = 100)
+
+colors_heat <- list('Geneset' = geneset_cols,
+                    'Pseudotime' = pseudotime_cols)
+
+#plot heatmap with modified function
+plot_genes_branched_heatmap_vyedit(
+  monocle_cds[to_be_tested,], branch_point = 3, 
+  num_clusters = 5,
+  norm_method = 'none',
+  add_annotation_row = row_anno,
+  annotation_cols = colors_heat,
+  show_rownames = T,
+  branch_labels = c('Extravillous pathway', 'Syncytiotrophoblast pathway'),
+  return_heatmap = F)
+
+plot_pseudotime_heatmap_vyedit(monocle_cds[to_be_tested,],
+                        show_rownames = T,
+                        num_clusters = 5,
+                        add_annotation_row = row_anno,
+                        add_annotation_col = data.frame(Pseudotime = seq(0,40, length = 100)),
+                        annotation_cols = colors_heat,
+                        return_heatmap = T)
+```
+
+dev.off()
+
+pdf('../../outs/fig5_pseudotime_heatmap_update01.pdf', height = 4.5, width = 6)
+
+plot_pseudotime_heatmap_vyedit(monocle_cds[to_be_tested,],
+                        show_rownames = T,
+                        num_clusters = 5,
+                        add_annotation_row = row_anno,
+                        add_annotation_col = data.frame(Pseudotime = seq(0,40, length = 100)),
+                        annotation_cols = colors_heat)
+dev.off()
+
+### November 15th revision
+-Nov 8th Alex requests to create a "branched" heatmap
+
+```{r}
+library(monocle3)
+cds <- learn_graph(monocle_cds[to_be_tested,])
+
+BEAM_res <- BEAM(orderCells(monocle_cds[to_be_tested,]), branch_point = 2)
+
+all(rownames(row_anno) == to_be_tested)
+
+ph <- plot_genes_branched_heatmap(monocle_cds[to_be_tested,],
+                                  branch_point = 2,
+                                  num_clusters = 5,
+                                  branch_labels = c('Extravillous pathway', 
+                                                    'Villous pathway'),
+                                  add_annotation_row = row_anno,
+                                  cores = 1,
+                                  use_gene_short_name = T,
+                                  show_rownames = T,
+                                  return_heatmap = TRUE)
+
+```
+
+## 3.6 Slingshot
+
 
 Here I try Slingshot because it can take a reduced dimensional matrix of the cells
 
-```{r}
+```{r, eval = FALSE}
 sce <- slingshot(data = troph@reductions$umap@cell.embeddings, 
                  clusterLabels = troph$celltype)
 

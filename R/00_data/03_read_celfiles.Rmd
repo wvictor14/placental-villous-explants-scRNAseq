@@ -1,0 +1,67 @@
+---
+title: "03_load_celfile"
+author: "Victor Yuan"
+date: "May 14, 2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r}
+library(dplyr)
+library(oligo)
+library(affycoretools)
+library(pd.clariom.s.human)
+library(clariomshumantranscriptcluster.db)
+library(AnnotationDbi)
+
+celfiles <- list.celfiles('../../data/Jenna human microarray/')
+
+#oligo
+rawdata<- read.celfiles(paste0('../../data/Jenna human microarray/', celfiles))
+dim(exprs(rawdata)) # 300304 2
+tail(exprs(rawdata))
+
+#normalize
+normData <- rma(rawdata)
+dim(exprs(normData)) # 27189 2
+head(exprs(normData))
+tail(exprs(normData))
+
+
+#before annotating the eset, let's see what type of probe level information we should add:
+keytypes(clariomshumantranscriptcluster.db)
+
+# let's annotate
+normData_annotated_ChipDB <- annotateEset(normData, 
+                                          clariomshumantranscriptcluster.db,
+                                          columns = c("PROBEID", "ENTREZID", "SYMBOL", "GENENAME",
+                                                      "ENSEMBL", "GO", "GOALL", "MAP", "REFSEQ",
+                                                      "UCSCKG"))
+                                          
+# confirm annotation data has been added
+anno <- normData_annotated_ChipDB@featureData@data %>% as_tibble
+anno
+head(normData_annotated_ChipDB@featureData@data)
+tail(normData_annotated_ChipDB@featureData@data)
+```
+
+
+Below is exploratory code that helped figure out what was going on.
+
+```{r}
+# grab examples of each key
+key_values <- lapply(keytypes(clariomshumanhttranscriptcluster.db), 
+                     function(x) c(x, head(keys(clariomshumanhttranscriptcluster.db, keytype = x)),
+                                   tail(keys(clariomshumanhttranscriptcluster.db, keytype = x))))
+key_values
+
+
+clariomdb <- select(clariomshumantranscriptcluster.db, 
+                    keys(clariomshumantranscriptcluster.db, keytype = 'PROBEID'), 
+                    c("ENTREZID","OMIM","PATH", "PFAM", "PMID", "SYMBOL"))
+
+sum(rownames(normData) %in% keys(clariomshumantranscriptcluster.db, keytype = 'PROBEID')) 
+```
+

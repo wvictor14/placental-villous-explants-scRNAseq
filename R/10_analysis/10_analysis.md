@@ -223,8 +223,41 @@ library(slingshot)
 ## Loading required package: princurve
 ```
 
+```
+## Warning: multiple methods tables found for 'rowSums'
+```
+
+```
+## Warning: multiple methods tables found for 'colSums'
+```
+
+```
+## Warning: multiple methods tables found for 'rowMeans'
+```
+
+```
+## Warning: multiple methods tables found for 'colMeans'
+```
+
 ```r
 library(RColorBrewer)
+library(scales)
+```
+
+```
+## 
+## Attaching package: 'scales'
+```
+
+```
+## The following object is masked from 'package:readr':
+## 
+##     col_factor
+```
+
+```r
+source('../plot_genes_branched_heatmap_vyedit.R')
+
 troph <- readRDS('../../data/interim/02_troph_merge.rds')
 ```
 
@@ -599,6 +632,20 @@ plot_cell_trajectory(monocle_cds, color_by = "Cluster")
 
 ![](10_analysis_files/figure-html/unnamed-chunk-7-2.png)<!-- -->
 
+```r
+# set root state
+GM_state <- function(cds){
+  if (length(unique(pData(cds)$State)) > 1){
+    T0_counts <- table(pData(cds)$State, pData(cds)$celltype)[,"VCT"]
+    return(as.numeric(names(T0_counts)[which
+          (T0_counts == max(T0_counts))]))
+  } else {
+    return (1)
+  }
+}
+monocle_cds <- orderCells(monocle_cds, root_state = GM_state(monocle_cds))
+```
+
 Pretty good.
 
 ### Based on top 1000 variable genes
@@ -793,13 +840,16 @@ fig5a
 
 ```r
 # classic trophoblast markers
-fig5b <- ggplot(pDat_melt %>% filter(Gene %in% c('KRT7', 'EGFR', 'ERVFRD-1', 'HLA-G')) %>%
-         mutate(Gene = factor(as.character(Gene), levels = c('KRT7', 'EGFR', 'ERVFRD-1', 'HLA-G'))),
-       aes(x = dim1, y = dim2, col = Expression)) +
+fig5b <- pDat_melt %>% 
+  filter(Gene %in% c('KRT7', 'EGFR', 'ERVFRD-1', 'HLA-G')) %>%
+  mutate(Gene = factor(as.character(Gene), levels = c('KRT7', 'EGFR', 'ERVFRD-1', 'HLA-G'))) %>%
+  group_by(Gene) %>%
+  mutate(Expression = Expression/sd(Expression)) %>%
+  ggplot(aes(x = dim1, y = dim2, col = Expression)) +
   geom_point(size = 0.8, alpha = 0.8) +
-  scale_color_gradientn(colours = cols2) +
+  scale_color_gradientn(colors = c('grey', 'yellow', 'red'), limits = c(0, 3), oob = squish) + 
   facet_wrap(~Gene) +
-  labs(x = 'Dimension 1', y = 'Dimension 2')
+  labs(x = 'Dimension 1', y = 'Dimension 2', color = 'Expression')
 fig5b
 ```
 
@@ -821,19 +871,22 @@ Upregulated in 1%
 
 
 ```r
+library(scales)
 #facet grid
 fig5d <- ggplot(pDat_melt %>% filter(Geneset == 'Top Upregulated (1%)'),
-                aes(x = dim1, y = dim2, col = Expression)) +
+                aes(x = dim1, y = dim2, 
+                    col = (Expression) / sd(Expression))) +
   geom_point(size = 0.8, alpha = 0.8) +
-  scale_color_gradientn(colours = cols2) + 
+  scale_color_gradientn(colors = c('grey', 'yellow', 'red'), limits = c(0, 3), oob = squish) + 
   facet_wrap(~Gene, scale = 'free', nrow = 3) +
-  labs(x = 'Dimension 1', y = 'Dimension 2')
+  labs(x = 'Dimension 1', y = 'Dimension 2', color = 'Expression')
 fig5d
 ```
 
 ![](10_analysis_files/figure-html/unnamed-chunk-16-1.png)<!-- -->
 
 ```r
+### Old approach, way too tedious
 # with cowplot::plot_grid()
 plot_list_low <- list()
 
@@ -875,7 +928,7 @@ plot_grid(plotlist = plot_list_low, nrow = 3)
 ![](10_analysis_files/figure-html/unnamed-chunk-16-2.png)<!-- -->
 
 tiff(file = '../../outs/fig5d.tiff', width = 11, height = 7, units = 'in', res = 300)
-plot_grid(plotlist = plot_list_low, nrow = 3)
+fig5d
 dev.off()
 
 ### 20%
@@ -884,12 +937,13 @@ Upregulated in 20%
 
 
 ```r
-fig5d <- ggplot(pDat_melt %>% filter(Geneset == 'Top Upregulated (20%)'),
-                aes(x = dim1, y = dim2, col = Expression)) +
+fig5e <- ggplot(pDat_melt %>% filter(Geneset == 'Top Upregulated (20%)'),
+                aes(x = dim1, y = dim2, col = Expression / sd(Expression))) +
   geom_point(size = 0.8, alpha = 1) +
+  scale_color_gradientn(colors = c('grey', 'yellow', 'red'), limits = c(0, 3), oob = squish) + 
   facet_wrap(~Gene, scale = 'free', nrow = 3) +
-  labs(x = 'Dimension 1', y = 'Dimension 2')
-fig5d
+  labs(x = 'Dimension 1', y = 'Dimension 2', color = 'Expression')
+fig5e
 ```
 
 ![](10_analysis_files/figure-html/unnamed-chunk-17-1.png)<!-- -->
@@ -938,10 +992,115 @@ plot_grid(plotlist = plot_list_high, nrow = 3)
 ![](10_analysis_files/figure-html/unnamed-chunk-17-2.png)<!-- -->
 
 tiff(file = '../../outs/fig5e.tiff',  width = 11, height = 7, units = 'in', res = 300)
-plot_grid(plotlist = plot_list_high, nrow = 3)
+fig5e
 dev.off()
 
-## 3.4 Slingshot
+
+## 3.4 By state
+
+
+```r
+plot_cell_trajectory(monocle_cds, color_by = "State") +
+  facet_wrap(~State)
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-18-1.png)<!-- -->
+
+```r
+plot_cell_trajectory(monocle_cds, color_by = "Pseudotime", show_branch_points  = F) +
+  scale_color_viridis_c()
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-18-2.png)<!-- -->
+
+```r
+# identify state containing mostly CTB cells
+
+blast_genes <- row.names(subset(fData(monocle_cds),
+                                gene_short_name %in% c("SPINT1", "TP63", "EGFR", 'MKI67', 'KRT7')))
+plot_genes_jitter(monocle_cds[blast_genes,],
+    grouping = "State",
+    min_expr = 0.1,
+    relative_expr = F)
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-18-3.png)<!-- -->
+pdf('../../outs/fig5_by_pseudotime.pdf')
+plot_cell_trajectory(monocle_cds, color_by = "Pseudotime", show_branch_points  = F) +
+  scale_color_viridis_c()
+dev.off()
+
+
+
+```r
+to_be_tested <- hitlist %>% 
+  filter(Geneset %in% c('Top Upregulated (20%)', 'Top Upregulated (1%)')) %>% pull(Gene)
+
+
+# row annotation
+row_anno <- hitlist %>% 
+  filter(Geneset %in% c('Top Upregulated (20%)', 'Top Upregulated (1%)')) %>%
+  select(Geneset) %>%
+  as.data.frame()
+rownames(row_anno) <- to_be_tested
+
+# color annotations
+# for row
+geneset_cols <- RColorBrewer::brewer.pal(7, 'Dark2')
+names(geneset_cols) <- c('Troph (general)', 'CTB', 'Dist CCTB', 'Prox CCTB', 
+                         'Syn Pre CTB', 'Top Upregulated (20%)', 'Top Upregulated (1%)')
+geneset_cols <- geneset_cols[6:7]
+
+# for columns
+cell_trajectory_cols <- c('Extravillous pathway' = '#b30000', #darkred
+                          'Pre-branch' = 'grey',
+                          'Syncytiotrophoblast pathway' = '#003cb3') # darkblue
+
+pseudotime_cols <- viridis_pal()(100) 
+names(pseudotime_cols) <- seq(0,40,length = 100)
+
+colors_heat <- list('Geneset' = geneset_cols,
+                    'Pseudotime' = pseudotime_cols)
+
+
+#plot_genes_branched_heatmap_vyedit(
+#  monocle_cds[to_be_tested,], branch_point = 3, 
+#  num_clusters = 5,
+#  norm_method = 'none',
+#  add_annotation_row = row_anno,
+#  annotation_cols = colors_heat,
+#  show_rownames = T,
+#  branch_labels = c('Extravillous pathway', 'Syncytiotrophoblast pathway'),
+#  return_heatmap = F)
+
+
+plot_pseudotime_heatmap_vyedit(monocle_cds[to_be_tested,],
+                        show_rownames = T,
+                        num_clusters = 5,
+                        add_annotation_row = row_anno,
+                        add_annotation_col = data.frame(Pseudotime = seq(0,40, length = 100)),
+                        annotation_cols = colors_heat)
+```
+
+```
+## Warning in if (norm_method == "log") {: the condition has length > 1 and
+## only the first element will be used
+```
+
+![](10_analysis_files/figure-html/unnamed-chunk-19-1.png)<!-- -->
+
+pdf('../../outs/fig5_pseudotime_heatmap.pdf', height = 4.5, width = 6)
+
+plot_pseudotime_heatmap_vyedit(monocle_cds[to_be_tested,],
+                        show_rownames = T,
+                        num_clusters = 5,
+                        add_annotation_row = row_anno,
+                        add_annotation_col = data.frame(Pseudotime = seq(0,40, length = 100)),
+                        annotation_cols = colors_heat)
+dev.off()
+
+## 3.5 Slingshot
+
 
 Here I try Slingshot because it can take a reduced dimensional matrix of the cells
 
@@ -1337,7 +1496,7 @@ plot(troph@reductions$umap@cell.embeddings[,1:2],
 lines(line, lwd = 3, col = 'black')
 ```
 
-![](10_analysis_files/figure-html/unnamed-chunk-18-1.png)<!-- -->
+![](10_analysis_files/figure-html/unnamed-chunk-20-1.png)<!-- -->
 
 ```r
 plot(troph@reductions$umap@cell.embeddings[,1:2], 
@@ -1345,7 +1504,7 @@ plot(troph@reductions$umap@cell.embeddings[,1:2],
 lines(crv1, lwd = 3, col = 'black')
 ```
 
-![](10_analysis_files/figure-html/unnamed-chunk-18-2.png)<!-- -->
+![](10_analysis_files/figure-html/unnamed-chunk-20-2.png)<!-- -->
 
 ```r
 pDat <- troph@meta.data %>% 
@@ -1358,11 +1517,11 @@ ggplot(pDat, aes(x = UMAP_1, y = UMAP_2, col = pseudotime)) +
   geom_point()
 ```
 
-![](10_analysis_files/figure-html/unnamed-chunk-18-3.png)<!-- -->
+![](10_analysis_files/figure-html/unnamed-chunk-20-3.png)<!-- -->
 
 ```r
 ggplot(pDat, aes(x = celltype, y = pseudotime, col = celltype)) +
   geom_boxplot()
 ```
 
-![](10_analysis_files/figure-html/unnamed-chunk-18-4.png)<!-- -->
+![](10_analysis_files/figure-html/unnamed-chunk-20-4.png)<!-- -->
